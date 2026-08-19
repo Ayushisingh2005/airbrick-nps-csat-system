@@ -124,10 +124,8 @@ async function pushUpdate(projectId, status, percentComplete, log) {
     if (!res.ok) throw new Error("Backend returned " + res.status);
     const data = await res.json();
     if (log) {
-      if (data.triggeredStages && data.triggeredStages.length > 0) {
-        data.surveys.forEach(s => {
-          log.innerHTML += `<div class="status-line"><span class="dot"></span><span><strong>${s.stage.toUpperCase()}</strong> survey auto-fired for ${data.project.name} — <a href="survey.html?token=${s.token}" target="_blank">open survey ↗</a></span></div>`;
-        });
+      if (data.triggeredStage) {
+        log.innerHTML += `<div class="status-line"><span class="dot"></span><span><strong>${data.triggeredStage.toUpperCase()}</strong> survey auto-fired for ${data.project.name} — <a href="survey.html?token=${data.survey.token}" target="_blank">open survey ↗</a></span></div>`;
       } else {
         log.innerHTML += `<div class="status-line" style="animation-delay:0s;"><span class="dot" style="background:var(--muted);box-shadow:none;"></span><span>Updated ${data.project.name} — no new stage threshold crossed.</span></div>`;
       }
@@ -148,11 +146,10 @@ document.getElementById("pushBtn").addEventListener("click", async () => {
   const data = await pushUpdate(projectId, status, percent, null);
   if (data.error) {
     resultEl.innerHTML = `<p>Could not reach backend. It may still be waking up (free-tier services sleep after inactivity — try again in ~40 seconds), or the API URL may be misconfigured.</p>`;
-  } else if (data.triggeredStages && data.triggeredStages.length > 0) {
-    const links = data.surveys.map(s => `<strong>${s.stage.toUpperCase()}</strong>: <a href="survey.html?token=${s.token}" target="_blank">open survey ↗</a>`).join("<br>");
+  }   else if (data.triggeredStage) {
     resultEl.innerHTML = `<div class="alert-item" style="border-color:var(--good);background:rgba(111,191,139,0.12);">
-      <span class="status-line" style="padding:0;"><span class="dot"></span><span>${data.surveys.length} stage(s) crossed on this update — survey${data.surveys.length > 1 ? "s" : ""} auto-dispatched to ${data.project.customer}.</span></span><br>
-      ${links}
+      <span class="status-line" style="padding:0;"><span class="dot"></span><span><strong>${data.triggeredStage.toUpperCase()}</strong> stage crossed — survey auto-dispatched to ${data.project.customer}.</span></span><br>
+      <a href="survey.html?token=${data.survey.token}" target="_blank">Open the live survey ↗</a>
     </div>`;
   } else {
     resultEl.innerHTML = `<p>Tracker updated. No new stage threshold was crossed, so no survey was fired.</p>`;
