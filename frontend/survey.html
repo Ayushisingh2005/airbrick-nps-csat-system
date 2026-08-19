@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AirBrick Infra — Quick Feedback</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img class="logo" src="assets/airbrick-logo.png" alt="AirBrick Infra" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+    <div class="fallback-mark" style="display:none;">AB</div>
+    AirBrick<span class="accent">Infra</span>
+  </div>
+  <nav>
+    <a href="index.html">Dashboard</a>
+    <a href="tracker.html">Simulate Tracker</a>
+  </nav>
+</header>
+<div class="hero" style="padding:48px 32px;">
+  <div class="eyebrow">We Value Your Feedback</div>
+  <h1 style="font-size:28px;">A Minute of Your Time</h1>
+  <p class="lead">Help us deliver a better experience on your project.</p>
+</div>
+<main style="max-width:640px;">
+  <div id="content">Loading your survey…</div>
+</main>
+<script src="config.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get("token");
+const base = getApiBase();
+const el = document.getElementById("content");
+
+let currentBank = null;
+let answers = { ratings: {}, tags: [] };
+
+async function load() {
+  if (!token) { el.innerHTML = "<div class='card'>No survey token provided.</div>"; return; }
+  try {
+    const res = await fetch(`${base}/api/survey/${token}`);
+    if (!res.ok) {
+      const err = await res.json();
+      el.innerHTML = `<div class="card"><h2>${err.error}</h2><p class="small">This link may have already been used, or has expired.</p></div>`;
+      return;
+    }
+    const data = await res.json();
+    currentBank = data.bank;
+    renderForm(data);
+  } catch (e) {
+    el.innerHTML = `<div class="card">Could not reach the survey backend at <code>${base}</code>.</div>`;
+  }
+}
+
+function scaleButtons(id, max, min = 0) {
+  let html = `<div class="scale-buttons" data-field="${id}">`;
+  for (let i = min; i <= max; i++) html += `<button type="button" data-val="${i}">${i}</button>`;
+  html += `</div>`;
+  return html;
+}
+
+function tagButtons(id, options) {
+  let html = `<div class="scale-buttons tag-buttons" data-field="${id}" data-multi="true">`;
+  options.forEach(opt => html += `<button type="button" data-val="${opt}">${opt}</button>`);
+  html += `</div>`;
+  return html;
+}
+
+function renderForm(data) {
+  const { bank, survey } = data;
+  let questionsHtml = "";
+  bank.questions.forEach(q => {
+    if (q.type === "nps") {
+      questionsHtml += `<label>${q.text} (0 = not at all, 10 = extremely likely)</label>${scaleButtons("nps", 10, 0)}`;
+    } else if (q.type === "csat") {
+      questionsHtml += `<label>${q.text} (1 = very dissatisfied, 5 = very satisfied)</label>${scaleButtons("csat", 5, 1)}`;
+    } else if (q.type === "rating5") {
+      questionsHtml += `<label>${q.text}</label>${scaleButtons(q.id, 5, 1)}`;
+    } else if (q.type === "tags") {
+      questionsHtml += `<label>${q.text} ${q.optional ? "(optional)" : ""}</label>${tagButtons(q.id, q.options)}`;
+    } else if (q.type === "text") {
+      questionsHtml += `<label>${q.text} ${q.optional ? "(optional)" : ""}</label><textarea id="${q.id}" rows="3"></textarea>`;
+    }
+  });
+
+  el.innerHTML = `
+    <div class="card">
+      <h1 style="margin-top:0;">${bank.label} Feedback</h1>
+      <p class="lead">${bank.intro}</p>
+      <p class="small">Project: ${survey.projectName}</p>
+      <form id="surveyForm">
+        ${questionsHtml}
+        <div style="margin-top:20px;"><button type="submit">Submit Feedback</button></div>
+      </form>
+    </div>`;
+
+  document.querySelectorAll(".scale-buttons").forEach(group => {
+    group.addEventListener("click", e => {
+      if (e.target.tagName !== "BUTTON") return;
+      const field = group.dataset.field;
+
+      // Tag picker: multi-select toggle, values are strings, stored as an array
+      if (group.dataset.multi === "true") {
+        const val = e.target.dataset.val;
+        e.target.classList.toggle("selected");
+        if (e.target.classList.contains("selected")) {
+          if (!answers.tags.includes(val)) answers.tags.push(val);
+        } else {
+          answers.tags = answers.tags.filter(t => t !== val);
+        }
+        return;
+      }
+
+      // Everything else: single-select scale (0-10 NPS, 1-5 CSAT/rating)
+      const val = Number(e.target.dataset.val);
+      [...group.children].forEach(b => b.classList.remove("selected"));
+      e.target.classList.add("selected");
+      if (field === "nps") answers.nps = val;
+      else if (field === "csat") answers.csat = val;
+      else answers.ratings[field] = val;
+    });
+  });
+
+  document.getElementById("surveyForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    if (answers.nps === undefined || answers.csat === undefined) {
+      alert("Please answer both the recommendation and satisfaction questions.");
+      return;
+    }
+    const openTextQ = bank.questions.find(q => q.type === "text");
+    const comment = openTextQ ? document.getElementById(openTextQ.id).value : "";
+    const res = await fetch(`${base}/api/survey/${token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nps: answers.nps, csat: answers.csat, ratings: answers.ratings, tags: answers.tags, comment })
+    });
+    if (res.ok) {
+      el.innerHTML = `<div class="card"><h2>Thank you.</h2><p>Your feedback has been recorded and scores updated instantly on our internal dashboard.</p><a href="index.html" class="btn" style="display:inline-block;margin-top:8px;">View live dashboard →</a></div>`;
+    } else {
+      const err = await res.json();
+      el.innerHTML = `<div class="card"><h2>${err.error}</h2></div>`;
+    }
+  });
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Simulate Project Tracker — AirBrick Infra</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img class="logo" src="assets/airbrick-logo.png" alt="AirBrick Infra" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+    <div class="fallback-mark" style="display:none;">AB</div>
+    AirBrick<span class="accent">Infra</span>
+    <span class="tagline">Customer Pulse</span>
+  </div>
+  <nav>
+    <a href="index.html">Dashboard</a>
+    <a href="tracker.html">Simulate Tracker</a>
+  </nav>
+</header>
+<div class="hero">
+  <div class="eyebrow">Mock Project Tracker</div>
+  <h1>Simulate the Project Tracker</h1>
+  <p class="lead">This page stands in for AirBrick's real PM tool. In production, this would be a webhook or scheduled poll against the actual tracker. Here, you update a project's status / % complete manually — and the backend detects the stage crossing and fires the survey <strong>automatically</strong>, with zero further action from you.</p>
+</div>
+<main>
+  <div id="apiConfig"></div>
+
+  <div class="card" id="projectsCard">
+    <h2>Projects</h2>
+    <table id="projectsTable">
+      <thead><tr><th>ID</th><th>Project</th><th>Status</th><th>% Complete</th><th>Stages fired</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Push a Tracker Update</h2>
+    <div class="row">
+      <div>
+        <label>Project</label>
+        <select id="projectSelect"></select>
+      </div>
+      <div>
+        <label>New Status</label>
+        <select id="statusSelect">
+          <option value="">— no change —</option>
+          <option value="Onboarding Complete">Onboarding Complete</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Handover Certificate Issued">Handover Certificate Issued</option>
+        </select>
+      </div>
+      <div>
+        <label>New % Complete</label>
+        <input id="percentInput" type="number" min="0" max="100" placeholder="e.g. 45" />
+      </div>
+      <div>
+        <button id="pushBtn">Push Update</button>
+      </div>
+    </div>
+    <div id="pushResult" style="margin-top:16px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Quick Demo Sequence</h2>
+    <p class="small">Runs all 3 stage triggers for one project back-to-back so you can watch the automation fire live for the video walkthrough.</p>
+    <div class="row">
+      <div><label>Project</label><select id="demoProjectSelect"></select></div>
+      <div><button id="demoBtn" class="secondary">Run Full Lifecycle Demo</button></div>
+    </div>
+    <div id="demoLog" style="margin-top:14px; font-size:13px;"></div>
+  </div>
+
+  <p class="footer-note">Mock tracker for demo purposes · Prototype for AirBrick Infra PM case assignment</p>
+</main>
+
+<script src="config.js"></script>
+<script>
+renderApiConfigBox("apiConfig");
+const base = getApiBase();
+
+async function loadProjects() {
+  const res = await fetch(base + "/api/projects");
+  const projects = await res.json();
+  document.querySelector("#projectsTable tbody").innerHTML = projects.map(p => `
+    <tr>
+      <td>${p.id}</td>
+      <td>${p.name}</td>
+      <td>${p.status}</td>
+      <td>${p.percentComplete}%</td>
+      <td>${Object.keys(p.stagesSent || {}).filter(k => p.stagesSent[k]).join(", ") || "—"}</td>
+    </tr>`).join("");
+  const opts = projects.map(p => `<option value="${p.id}">${p.id} — ${p.name}</option>`).join("");
+  document.getElementById("projectSelect").innerHTML = opts;
+  document.getElementById("demoProjectSelect").innerHTML = opts;
+}
+
+async function pushUpdate(projectId, status, percentComplete, log) {
+  const body = { projectId };
+  if (status) body.status = status;
+  if (percentComplete !== undefined && percentComplete !== "" && percentComplete !== null) body.percentComplete = Number(percentComplete);
+  const res = await fetch(base + "/api/tracker/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (log) {
+    if (data.triggeredStage) {
+      log.innerHTML += `<div class="status-line"><span class="dot"></span><span><strong>${data.triggeredStage.toUpperCase()}</strong> survey auto-fired for ${data.project.name} — <a href="survey.html?token=${data.survey.token}" target="_blank">open survey ↗</a></span></div>`;
+    } else {
+      log.innerHTML += `<div class="status-line" style="animation-delay:0s;"><span class="dot" style="background:var(--muted);box-shadow:none;"></span><span>Updated ${data.project.name} — no new stage threshold crossed.</span></div>`;
+    }
+  }
+  return data;
+}
+
+document.getElementById("pushBtn").addEventListener("click", async () => {
+  const projectId = document.getElementById("projectSelect").value;
+  const status = document.getElementById("statusSelect").value;
+  const percent = document.getElementById("percentInput").value;
+  const resultEl = document.getElementById("pushResult");
+  resultEl.innerHTML = "Pushing update...";
+  const data = await pushUpdate(projectId, status, percent, null);
+  if (data.triggeredStage) {
+    resultEl.innerHTML = `<div class="alert-item" style="border-color:var(--good);background:rgba(111,191,139,0.12);">
+      <span class="status-line" style="padding:0;"><span class="dot"></span><span><strong>${data.triggeredStage.toUpperCase()}</strong> stage threshold crossed — survey auto-dispatched to ${data.project.customer}.</span></span><br>
+      <a href="survey.html?token=${data.survey.token}" target="_blank">Open the live survey ↗</a>
+    </div>`;
+  } else {
+    resultEl.innerHTML = `<p>Tracker updated. No new stage threshold was crossed, so no survey was fired.</p>`;
+  }
+  loadProjects();
+});
+
+document.getElementById("demoBtn").addEventListener("click", async () => {
+  const projectId = document.getElementById("demoProjectSelect").value;
+  const log = document.getElementById("demoLog");
+  log.innerHTML = "";
+  await pushUpdate(projectId, "Onboarding Complete", undefined, log);
+  await new Promise(r => setTimeout(r, 600));
+  await pushUpdate(projectId, undefined, 45, log);
+  await new Promise(r => setTimeout(r, 600));
+  await pushUpdate(projectId, "Handover Certificate Issued", undefined, log);
+  loadProjects();
+});
+
+loadProjects();
+</script>
+</body>
+</html>
