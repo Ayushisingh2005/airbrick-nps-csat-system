@@ -80,43 +80,56 @@
 
 <script src="config.js"></script>
 <script>
-renderApiConfigBox("apiConfig");
 const base = getApiBase();
 
 async function loadProjects() {
-  const res = await fetch(base + "/api/projects");
-  const projects = await res.json();
-  document.querySelector("#projectsTable tbody").innerHTML = projects.map(p => `
-    <tr>
-      <td>${p.id}</td>
-      <td>${p.name}</td>
-      <td>${p.status}</td>
-      <td>${p.percentComplete}%</td>
-      <td>${Object.keys(p.stagesSent || {}).filter(k => p.stagesSent[k]).join(", ") || "—"}</td>
-    </tr>`).join("");
-  const opts = projects.map(p => `<option value="${p.id}">${p.id} — ${p.name}</option>`).join("");
-  document.getElementById("projectSelect").innerHTML = opts;
-  document.getElementById("demoProjectSelect").innerHTML = opts;
+  try {
+    const res = await fetch(base + "/api/projects");
+    if (!res.ok) throw new Error("Backend returned " + res.status);
+    const projects = await res.json();
+    document.querySelector("#projectsTable tbody").innerHTML = projects.map(p => `
+      <tr>
+        <td>${p.id}</td>
+        <td>${p.name}</td>
+        <td>${p.status}</td>
+        <td>${p.percentComplete}%</td>
+        <td>${Object.keys(p.stagesSent || {}).filter(k => p.stagesSent[k]).join(", ") || "—"}</td>
+      </tr>`).join("");
+    const opts = projects.map(p => `<option value="${p.id}">${p.id} — ${p.name}</option>`).join("");
+    document.getElementById("projectSelect").innerHTML = opts;
+    document.getElementById("demoProjectSelect").innerHTML = opts;
+  } catch (e) {
+    document.querySelector("#projectsTable tbody").innerHTML =
+      `<tr><td colspan="5">Could not reach backend. It may still be waking up (free-tier services sleep after inactivity — try again in ~40 seconds), or the API URL may be misconfigured.</td></tr>`;
+  }
 }
 
 async function pushUpdate(projectId, status, percentComplete, log) {
   const body = { projectId };
   if (status) body.status = status;
   if (percentComplete !== undefined && percentComplete !== "" && percentComplete !== null) body.percentComplete = Number(percentComplete);
-  const res = await fetch(base + "/api/tracker/update", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const data = await res.json();
-  if (log) {
-    if (data.triggeredStage) {
-      log.innerHTML += `<div class="status-line"><span class="dot"></span><span><strong>${data.triggeredStage.toUpperCase()}</strong> survey auto-fired for ${data.project.name} — <a href="survey.html?token=${data.survey.token}" target="_blank">open survey ↗</a></span></div>`;
-    } else {
-      log.innerHTML += `<div class="status-line" style="animation-delay:0s;"><span class="dot" style="background:var(--muted);box-shadow:none;"></span><span>Updated ${data.project.name} — no new stage threshold crossed.</span></div>`;
+  try {
+    const res = await fetch(base + "/api/tracker/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error("Backend returned " + res.status);
+    const data = await res.json();
+    if (log) {
+      if (data.triggeredStages && data.triggeredStages.length > 0) {
+        data.surveys.forEach(s => {
+          log.innerHTML += `<div class="status-line"><span class="dot"></span><span><strong>${s.stage.toUpperCase()}</strong> survey auto-fired for ${data.project.name} — <a href="survey.html?token=${s.token}" target="_blank">open survey ↗</a></span></div>`;
+        });
+      } else {
+        log.innerHTML += `<div class="status-line" style="animation-delay:0s;"><span class="dot" style="background:var(--muted);box-shadow:none;"></span><span>Updated ${data.project.name} — no new stage threshold crossed.</span></div>`;
+      }
     }
+    return data;
+  } catch (e) {
+    if (log) log.innerHTML += `<div class="status-line"><span>Could not reach backend — it may still be waking up. Try again in ~40 seconds.</span></div>`;
+    return { error: true };
   }
-  return data;
 }
 
 document.getElementById("pushBtn").addEventListener("click", async () => {
@@ -126,10 +139,13 @@ document.getElementById("pushBtn").addEventListener("click", async () => {
   const resultEl = document.getElementById("pushResult");
   resultEl.innerHTML = "Pushing update...";
   const data = await pushUpdate(projectId, status, percent, null);
-  if (data.triggeredStage) {
+  if (data.error) {
+    resultEl.innerHTML = `<p>Could not reach backend. It may still be waking up (free-tier services sleep after inactivity — try again in ~40 seconds), or the API URL may be misconfigured.</p>`;
+  } else if (data.triggeredStages && data.triggeredStages.length > 0) {
+    const links = data.surveys.map(s => `<strong>${s.stage.toUpperCase()}</strong>: <a href="survey.html?token=${s.token}" target="_blank">open survey ↗</a>`).join("<br>");
     resultEl.innerHTML = `<div class="alert-item" style="border-color:var(--good);background:rgba(111,191,139,0.12);">
-      <span class="status-line" style="padding:0;"><span class="dot"></span><span><strong>${data.triggeredStage.toUpperCase()}</strong> stage threshold crossed — survey auto-dispatched to ${data.project.customer}.</span></span><br>
-      <a href="survey.html?token=${data.survey.token}" target="_blank">Open the live survey ↗</a>
+      <span class="status-line" style="padding:0;"><span class="dot"></span><span>${data.surveys.length} stage(s) crossed on this update — survey${data.surveys.length > 1 ? "s" : ""} auto-dispatched to ${data.project.customer}.</span></span><br>
+      ${links}
     </div>`;
   } else {
     resultEl.innerHTML = `<p>Tracker updated. No new stage threshold was crossed, so no survey was fired.</p>`;
