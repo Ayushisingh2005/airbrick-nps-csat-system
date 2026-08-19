@@ -169,7 +169,13 @@ document.getElementById("demoBtn").addEventListener("click", async () => {
   await pushUpdate(projectId, undefined, 45, log);
   await new Promise(r => setTimeout(r, 600));
   await pushUpdate(projectId, "Handover Certificate Issued", undefined, log);
+  document.getElementById("resetBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("resetStatus");
+  statusEl.textContent = "Resetting...";
+  await fetch(base + "/api/reset", { method: "POST" });
+  statusEl.textContent = "Done — all projects reset.";
   loadProjects();
+  setTimeout(() => { statusEl.textContent = ""; }, 3000);
 });
 
 loadProjects();
